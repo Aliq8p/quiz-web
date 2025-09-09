@@ -1,0 +1,14 @@
+{
+  "questions": [
+    {
+      "prompt": "شيء يستخدمه الإنسان للوصول إلى وجهته؟",
+      "timeLimitSec": 30,
+      "answers": [
+        { "text": "سيارة", "points": 50, "synonyms": ["السيارة", "موتر", "عربة"] },
+        { "text": "طيارة", "points": 40, "synonyms": ["طائرة"] },
+        { "text": "دراجة", "points": 30, "synonyms": ["بسكل", "بسكليت", "عجلة"] },
+        { "text": "قطار",  "points": 20, "synonyms": [] }
+      ]
+    }
+  ]
+}
