@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
-/* ========== أدوات مساعدة ========== */
+/* ===== أدوات مساعدة ===== */
 function normalizeArabic(input) {
   if (!input) return "";
   let s = input.trim();
@@ -18,7 +18,6 @@ function normalizeArabic(input) {
   return s.replace(/\s+/g, " ").toLowerCase();
 }
 
-// اختيار n عناصر عشوائيًا (Fisher–Yates)
 function pickRandom(arr, n) {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -28,7 +27,41 @@ function pickRandom(arr, n) {
   return copy.slice(0, Math.min(n, copy.length));
 }
 
-/* ========== بطاقة الإجابة ========== */
+/* ===== أسئلة افتراضية كاحتياط لو الملف مفقود ===== */
+const DEFAULT_QUESTIONS = [
+  {
+    prompt: "شيء يستخدمه الإنسان للوصول إلى وجهته؟",
+    timeLimitSec: 30,
+    answers: [
+      { text: "سيارة", points: 50, synonyms: ["السيارة", "موتر", "عربة"] },
+      { text: "طيارة", points: 40, synonyms: ["طائرة"] },
+      { text: "دراجة", points: 30, synonyms: ["بسكل", "بسكليت", "عجلة"] },
+      { text: "قطار", points: 20, synonyms: [] },
+    ],
+  },
+  {
+    prompt: "شيء نشوفه في المدرسة؟",
+    timeLimitSec: 30,
+    answers: [
+      { text: "معلم", points: 50, synonyms: ["أستاذ", "مدرس"] },
+      { text: "سبورة", points: 40, synonyms: ["لوح"] },
+      { text: "كتب", points: 30, synonyms: ["كتاب"] },
+      { text: "طابور", points: 20, synonyms: [] },
+    ],
+  },
+  {
+    prompt: "شيء نستخدمه في المطبخ للطبخ؟",
+    timeLimitSec: 30,
+    answers: [
+      { text: "قدر", points: 50, synonyms: ["طنجرة", "حلة"] },
+      { text: "مقلاة", points: 40, synonyms: ["طاسة", "قلاية", "مقلا"] },
+      { text: "ملعقة", points: 30, synonyms: ["معلقة", "مغرفة"] },
+      { text: "فرن", points: 20, synonyms: ["بوتاجاز", "غاز", "شواية"] },
+    ],
+  },
+];
+
+/* بطاقة */
 function Card({ index, revealed, answer, points }) {
   return (
     <motion.div
@@ -49,7 +82,7 @@ function Card({ index, revealed, answer, points }) {
   );
 }
 
-/* ========== التطبيق ========== */
+/* التطبيق */
 export default function QuizWebApp() {
   const [questions, setQuestions] = useState([]);
   const [qIndex, setQIndex] = useState(0);
@@ -60,35 +93,43 @@ export default function QuizWebApp() {
   const [revealed, setRevealed] = useState([false, false, false, false]);
   const [locked, setLocked] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [usedFallback, setUsedFallback] = useState(false);
 
-  // تحميل الأسئلة واختيار سؤالين عشوائياً
+  async function loadTwoQuestions() {
+    try {
+      const r = await fetch("/questions.json", { cache: "no-store" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const all = Array.isArray(data?.questions) ? data.questions : [];
+      if (!all.length) throw new Error("empty questions");
+      setUsedFallback(false);
+      return pickRandom(all, 2);
+    } catch (e) {
+      console.warn("فشل تحميل questions.json، سيتم استخدام الأسئلة الافتراضية.", e);
+      setUsedFallback(true);
+      return pickRandom(DEFAULT_QUESTIONS, 2);
+    }
+  }
+
+  // تحميل أولي
   useEffect(() => {
-    fetch("/questions.json")
-      .then((r) => r.json())
-      .then((data) => {
-        const all = data?.questions || [];
-        const chosen = pickRandom(all, 2);
-        setQuestions(chosen);
-
-        // تهيئة الحالة لأول سؤال
-        setQIndex(0);
-        setScore(0);
-        setAttemptsLeft(7);
-        setRevealed([false, false, false, false]);
-        setLocked(false);
-        setCountdown(0);
-        if (chosen[0]) setTimeLeft(chosen[0].timeLimitSec || 30);
-      })
-      .catch(() => {
-        // في حال فشل القراءة، نخلي كل شيء افتراضي
-        setQuestions([]);
-      });
+    (async () => {
+      const chosen = await loadTwoQuestions();
+      setQuestions(chosen);
+      setQIndex(0);
+      setScore(0);
+      setAttemptsLeft(7);
+      setRevealed([false, false, false, false]);
+      setLocked(false);
+      setCountdown(0);
+      setTimeLeft(chosen[0]?.timeLimitSec || 30);
+    })();
   }, []);
 
   const current = questions[qIndex];
   const allRevealed = revealed.every(Boolean);
 
-  // مؤقّت الجولة
+  // مؤقّت
   useEffect(() => {
     if (locked || !current) return;
     if (timeLeft <= 0 || allRevealed || attemptsLeft <= 0) return;
@@ -96,7 +137,7 @@ export default function QuizWebApp() {
     return () => clearInterval(id);
   }, [timeLeft, locked, allRevealed, attemptsLeft, current]);
 
-  // عند انتهاء الوقت/المحاولات/كشف الكل نبدأ 3..2..1
+  // نهاية الجولة
   useEffect(() => {
     if (locked || !current) return;
     if (timeLeft <= 0 || attemptsLeft <= 0 || allRevealed) startCountdown();
@@ -119,10 +160,7 @@ export default function QuizWebApp() {
     let found = -1;
     for (let i = 0; i < ans.length; i++) {
       if (revealed[i]) continue;
-      if (matches(val, ans[i])) {
-        found = i;
-        break;
-      }
+      if (matches(val, ans[i])) { found = i; break; }
     }
 
     if (found >= 0) {
@@ -143,7 +181,7 @@ export default function QuizWebApp() {
     setCountdown(3);
   }
 
-  // 3..2..1 ثم إما سؤال تالي أو انتهاء
+  // 3..2..1 ثم التالي/النهاية
   useEffect(() => {
     if (countdown <= 0) return;
     const id = setInterval(() => {
@@ -153,17 +191,14 @@ export default function QuizWebApp() {
           setRevealed((r) => r.map(() => true));
           setTimeout(() => {
             if (qIndex + 1 < questions.length) {
-              // سؤال تالي
               const next = qIndex + 1;
               setQIndex(next);
               setAttemptsLeft(7);
               setRevealed([false, false, false, false]);
               setLocked(false);
               setCountdown(0);
-              const q = questions[next];
-              setTimeLeft(q?.timeLimitSec || 30);
+              setTimeLeft(questions[next]?.timeLimitSec || 30);
             } else {
-              // انتهت الجولة الأخيرة
               setLocked(true);
               setCountdown(0);
             }
@@ -186,8 +221,11 @@ export default function QuizWebApp() {
 
   if (!current) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        جاري التحميل…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3">
+        <div>جاري التحميل…</div>
+        <div className="text-xs text-gray-500">
+          إن طال التحميل، تأكد من وجود الملف <code>/public/questions.json</code> أو جرّب تحديث قوي (Ctrl+F5).
+        </div>
       </div>
     );
   }
@@ -195,11 +233,18 @@ export default function QuizWebApp() {
   return (
     <div className="min-h-screen w-full bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900 p-4">
       <div className="max-w-xl mx-auto flex flex-col gap-4">
-        {/* العنوان */}
+        {/* هيدر */}
         <div className="flex items-center justify-between">
           <div className="text-lg font-semibold">لعبة الأسئلة والأجوبة</div>
           <div className="text-sm opacity-70">نسخة الويب</div>
         </div>
+
+        {/* تنبيه لو استخدمنا الأسئلة الافتراضية */}
+        {usedFallback && (
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-800 text-sm">
+            ملاحظة: ما قدرنا نقرأ <code>questions.json</code>، فاستعملنا أسئلة افتراضية.
+          </div>
+        )}
 
         {/* شريط الحالة */}
         <div className="grid grid-cols-3 gap-2 text-center">
@@ -233,9 +278,7 @@ export default function QuizWebApp() {
             placeholder="اكتب الجواب هنا..."
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onSubmit();
-            }}
+            onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
             disabled={locked}
           />
           <button
@@ -255,38 +298,31 @@ export default function QuizWebApp() {
               index={i}
               revealed={revealed[i]}
               answer={a.text}
-              points={revealed[i] ? (revealed.filter(Boolean).length ? a.points : a.points) : 0}
+              points={revealed[i] ? a.points : 0}
             />
           ))}
         </div>
 
-        {/* النهاية */}
+        {/* النهاية + زر إعادة تحميل الأسئلة من الملف */}
         {finished && (
-          <div className="rounded-2xl bg-white shadow p-6 text-center space-y-2">
+          <div className="rounded-2xl bg-white shadow p-6 text-center space-y-3">
             <div className="text-2xl font-extrabold">انتهت الجولة 👏</div>
-            <div className="text-lg">
-              مجموع نقاطك: <span className="font-bold">{score}</span>
-            </div>
+            <div className="text-lg">مجموع نقاطك: <span className="font-bold">{score}</span></div>
             <button
               className="mt-2 rounded-xl px-5 py-3 bg-slate-900 text-white font-semibold hover:bg-slate-800"
-              onClick={() => {
-                // إعادة اختيار عشوائي جديد بدون إعادة تحميل الصفحة
-                fetch("/questions.json")
-                  .then((r) => r.json())
-                  .then((data) => {
-                    const chosen = pickRandom(data?.questions || [], 2);
-                    setQuestions(chosen);
-                    setQIndex(0);
-                    setScore(0);
-                    setAttemptsLeft(7);
-                    setRevealed([false, false, false, false]);
-                    setLocked(false);
-                    setCountdown(0);
-                    if (chosen[0]) setTimeLeft(chosen[0].timeLimitSec || 30);
-                  });
+              onClick={async () => {
+                const chosen = await loadTwoQuestions();
+                setQuestions(chosen);
+                setQIndex(0);
+                setScore(0);
+                setAttemptsLeft(7);
+                setRevealed([false, false, false, false]);
+                setLocked(false);
+                setCountdown(0);
+                setTimeLeft(chosen[0]?.timeLimitSec || 30);
               }}
             >
-              إعادة اللعب (اختيار عشوائي جديد)
+              إعادة اللعب (اختيار جديد من الملف)
             </button>
           </div>
         )}
