@@ -19,6 +19,15 @@ function normalizeArabic(input) {
   return s;
 }
 
+function pickRandom(arr, n) {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]]; // خلط Fisher–Yates
+  }
+  return copy.slice(0, Math.min(n, copy.length));
+}
+
 const QUESTIONS = [
   {
     prompt: "شيء يستخدمه الإنسان للوصول إلى وجهته؟",
